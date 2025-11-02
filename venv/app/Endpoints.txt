@@ -1,0 +1,12 @@
+Product Endpoints
+http://localhost:8000/products/addProduct
+http://localhost:8000/products/viewProduct
+
+
+CartItems endpoints
+http://localhost:8000/cartItem/add
+http://localhost:8000/cartItem/view
+http://localhost:8000/cartItem/delete/5
+http://localhost:8000/cartItem/clear
+http://localhost:8000/cartItem/5/increase
+http://localhost:8000/cartItem/5/decrease
