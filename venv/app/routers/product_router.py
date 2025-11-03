@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from ..database import SessionLocal
-from .. import models, schemas
+from app.models.ProductModel import Product
 
+from app.schemas.Product import ProductResponse, ProductCreate
+# ProductModel.py
+from app.database import SessionLocal
 router = APIRouter(prefix="/products", tags=["Products"])
 
 
@@ -14,16 +16,16 @@ def get_db():
         db.close()
 
 
-@router.post("/addProduct", response_model=schemas.ProductResponse)
-def create_product(payload: schemas.ProductCreate,
+@router.post("/addProduct", response_model=ProductResponse)
+def create_product(payload: ProductCreate,
                    db: Session = Depends(get_db)):
-    new_product = models.Product(**payload.dict())
+    new_product = Product(**payload.dict())
     db.add(new_product)
     db.commit()
     db.refresh(new_product)
     return new_product
 
 
-@router.get("/viewProduct", response_model=list[schemas.ProductResponse])
+@router.get("/viewProduct", response_model=list[ProductResponse])
 def get_products(db: Session = Depends(get_db)):
-    return db.query(models.Product).all()
+    return db.query(Product).all()
