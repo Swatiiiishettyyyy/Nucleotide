@@ -5,17 +5,14 @@ from app.database import Base
 class Product(Base):
     __tablename__ = "products"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(200), nullable=False)
+    ProductId = Column(Integer, primary_key=True, index=True)
+    Name = Column(String(200), nullable=False)
 
-    mrp_price = Column(Float, nullable=False)
-    sale_price = Column(Float, nullable=False)
-    price_unit = Column(String(50), nullable=False)
+    Price = Column(Float, nullable=False)             # Earlier mrp_price
+    SpecialPrice = Column(Float, nullable=False)      # Earlier sale_price
 
-    shipping_info = Column(String(200), nullable=False)
-    sample_requirement = Column(String(200), nullable=False)
+    ShortDescription = Column(String(500), nullable=False)
+    Discount = Column(String(50), nullable=True)
 
-    long_description = Column(String(1000), nullable=False)
-    features = Column(JSON, nullable=False)
-    available_quantity = Column(Integer, nullable=False, default=0)
-
+    Description = Column(String(2000), nullable=True)
+    Images = Column(JSON, nullable=True)   # List of image URLs

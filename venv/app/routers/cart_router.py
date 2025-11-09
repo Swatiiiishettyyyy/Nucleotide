@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from ..database import SessionLocal
+from app.database import SessionLocal
 from app.models.CartItemModel import CartItem
 from app.models.ProductModel import Product
-from app.schemas.CartItem import CartAdd, CartUpdate, CartItemResponse
+from app.schemas.CartItem import CartAdd, CartUpdate
 
 router = APIRouter(prefix="/cartItem", tags=["Cart"])
 
@@ -18,119 +18,129 @@ def get_db():
 
 @router.post("/add")
 def add_to_cart(item: CartAdd, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(
-        Product.id == item.product_id).first()
-    
+    product = db.query(Product).filter(Product.ProductId == item.product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    # Check stock before adding
-    if item.quantity > product.available_quantity:
-        raise HTTPException(status_code=400, 
-                            detail="Requested quantity exceeds stock")
-
-    cart_item = db.query(CartItem).filter(
-        CartItem.product_id == item.product_id).first()
-
+    cart_item = db.query(CartItem).filter(CartItem.product_id == item.product_id).first()
     if cart_item:
-        # Ensure total quantity does not exceed stock
-        if cart_item.quantity + item.quantity > product.available_quantity:
-            raise HTTPException(status_code=400,
-                                detail="Not enough stock to add more to cart")
         cart_item.quantity += item.quantity
     else:
-        cart_item = CartItem(
-            product_id=item.product_id, quantity=item.quantity)
+        cart_item = CartItem(product_id=item.product_id, quantity=item.quantity)
         db.add(cart_item)
 
     db.commit()
-    return {"message": "Item added to cart successfully"}
+    db.refresh(cart_item)
 
-
-@router.get("/view", response_model=list[CartItemResponse])
-def view_cart(db: Session = Depends(get_db)):
-    return db.query(CartItem).all()
+    return {
+        "status": "success",
+        "message": "Product added to cart successfully.",
+        "data": {
+            "product_id": product.ProductId,
+            "quantity": cart_item.quantity,
+            "price": product.Price,
+            "special_price": product.SpecialPrice,
+            "total_amount": cart_item.quantity * product.SpecialPrice
+        }
+    }
 
 
 @router.put("/update/{cart_item_id}")
-def update_cart_item(cart_item_id: int, update_data: CartUpdate, 
-                     db: Session = Depends(get_db)):
-    item = db.query(CartItem).filter(
-        CartItem.id == cart_item_id).first()
-    
-    if not item:
+def update_cart_item(cart_item_id: int, update: CartUpdate, db: Session = Depends(get_db)):
+    cart_item = db.query(CartItem).filter(CartItem.id == cart_item_id).first()
+    if not cart_item:
         raise HTTPException(status_code=404, detail="Cart item not found")
 
-    # Prevent assigning quantity > stock
-    product = db.query(Product).filter(
-        Product.id == item.product_id).first()
-    if update_data.quantity > product.available_quantity:
-        raise HTTPException(
-            status_code=400, 
-            detail="Requested quantity exceeds available stock")
-    if update_data.quantity <= 0:
-        db.delete(item)
-    else:
-        item.quantity = update_data.quantity
-
+    cart_item.quantity = update.quantity
     db.commit()
-    return {"message": "Cart item updated successfully"}
+    db.refresh(cart_item)
 
-
-# Increase Quantity (with stock check)
-@router.patch("/{cart_item_id}/increase")
-def increase_quantity(cart_item_id: int, db: Session = Depends(get_db)):
-    item = db.query(CartItem).filter(
-        CartItem.id == cart_item_id).first()
-    
-    if not item:
-        raise HTTPException(status_code=404, detail="Cart item not found")
-
-    product = db.query(Product).filter(
-        Product.id == item.product_id).first()
-
-    if item.quantity >= product.available_quantity:
-        raise HTTPException(status_code=400, 
-                            detail="Cannot increase. Product out of stock.")
-
-    item.quantity += 1
-    db.commit()
-    return {"message": "Quantity increased", "quantity": item.quantity}
-
-
-# Decrease Quantity (Never below 1)
-@router.patch("/{cart_item_id}/decrease")
-def decrease_quantity(cart_item_id: int, db: Session = Depends(get_db)):
-    item = db.query(CartItem).filter(
-        CartItem.id == cart_item_id).first()
-    
-    if not item:
-        raise HTTPException(status_code=404, detail="Cart item not found")
-
-    if item.quantity > 1:
-        item.quantity -= 1
-        db.commit()
-        return {"message": "Quantity decreased", "quantity": item.quantity}
-    else:
-        raise HTTPException(
-            status_code=400, detail="Quantity cannot be less than 1")
+    product = cart_item.product
+    return {
+        "status": "success",
+        "message": "Cart item updated successfully.",
+        "data": {
+            "product_id": product.ProductId,
+            "quantity": cart_item.quantity,
+            "price": product.Price,
+            "special_price": product.SpecialPrice,
+            "total_amount": cart_item.quantity * product.SpecialPrice
+        }
+    }
 
 
 @router.delete("/delete/{cart_item_id}")
-def remove_cart_item(cart_item_id: int, db: Session = Depends(get_db)):
-    item = db.query(CartItem).filter(
-        CartItem.id == cart_item_id).first()
-    
-    if not item:
+def delete_cart_item(cart_item_id: int, db: Session = Depends(get_db)):
+    cart_item = db.query(CartItem).filter(CartItem.id == cart_item_id).first()
+    if not cart_item:
         raise HTTPException(status_code=404, detail="Cart item not found")
 
-    db.delete(item)
+    db.delete(cart_item)
     db.commit()
-    return {"message": "Item removed from cart"}
+
+    return {
+        "status": "success",
+        "message": f"Cart item {cart_item_id} deleted successfully."
+    }
 
 
 @router.delete("/clear")
 def clear_cart(db: Session = Depends(get_db)):
-    db.query(CartItem).delete()
+    deleted_count = db.query(CartItem).delete()
     db.commit()
-    return {"message": "Cart cleared successfully"}
+    return {
+        "status": "success",
+        "message": f"Cleared {deleted_count} item(s) from the cart."
+    }
+
+
+@router.get("/view")
+def view_cart(db: Session = Depends(get_db)):
+    cart_items = db.query(CartItem).all()
+    if not cart_items:
+        return {
+            "status": "success",
+            "message": "Cart is empty.",
+            "data": {
+                "cart_summary": None,
+                "cart_items": []
+            }
+        }
+
+    subtotal_amount = 0
+    delivery_charge = 50
+    cart_item_details = []
+
+    for item in cart_items:
+        product = item.product
+        total = item.quantity * product.SpecialPrice
+        subtotal_amount += total
+
+        cart_item_details.append({
+            "cart_item_id": item.id,
+            "product_id": product.ProductId,
+            "product_name": product.Name,
+            "product_images": product.Images,
+            "price": product.Price,
+            "special_price": product.SpecialPrice,
+            "quantity": item.quantity,
+            "total_amount": total
+        })
+
+    grand_total = subtotal_amount + delivery_charge
+
+    summary = {
+        "total_items": len(cart_items),
+        "subtotal_amount": subtotal_amount,
+        "delivery_charge": delivery_charge,
+        "grand_total": grand_total
+    }
+
+    return {
+        "status": "success",
+        "message": "Cart data fetched successfully.",
+        "data": {
+            "cart_summary": summary,
+            "cart_items": cart_item_details
+        }
+    }
