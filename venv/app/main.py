@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from .database import Base, engine
 from .routers import product_router, cart_router , auth
+from app.models.otp_log import OTPLog
 
 Base.metadata.create_all(bind=engine)
 
