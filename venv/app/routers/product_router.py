@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ProductModel import Product
 from app.database import SessionLocal
-
+from app.deps import get_db
 from app.schemas.Product import (
     ProductCreate,
     ProductResponse,
@@ -12,15 +12,6 @@ from app.schemas.Product import (
 )
 
 router = APIRouter(prefix="/products", tags=["Products"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 
 @router.post("/addProduct", response_model=ProductSingleResponse)
 def create_product(payload: ProductCreate, db: Session = Depends(get_db)):

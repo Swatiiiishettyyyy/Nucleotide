@@ -4,17 +4,8 @@ from app.database import SessionLocal
 from app.models.CartItemModel import CartItem
 from app.models.ProductModel import Product
 from app.schemas.CartItem import CartAdd, CartUpdate
-
+from app.deps import get_db
 router = APIRouter(prefix="/cartItem", tags=["Cart"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 
 @router.post("/add")
 def add_to_cart(item: CartAdd, db: Session = Depends(get_db)):
