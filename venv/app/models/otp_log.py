@@ -14,3 +14,5 @@ class OTPLog(Base):
 
     # status: sent / verified / failed
     status = Column(String(20), nullable=False)
+    
+    

@@ -1,32 +1,104 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from typing import Optional
+
 from app.database import SessionLocal
 from app.models.CartItemModel import CartItem
 from app.models.ProductModel import Product
+from app.models.User import User
 from app.schemas.CartItem import CartAdd, CartUpdate
 from app.deps import get_db
-router = APIRouter(prefix="/cartItem", tags=["Cart"])
+from app.utils.auth_user import get_current_user
+from app.crud.audit import create_audit_log
+
+router = APIRouter(prefix="/cart", tags=["Cart"])
+
+
+def get_client_info(request: Request):
+    """Extract client IP and user agent from request"""
+    ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    return ip, user_agent
+
 
 @router.post("/add")
-def add_to_cart(item: CartAdd, db: Session = Depends(get_db)):
+def add_to_cart(
+    item: CartAdd,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Add item to cart (requires authentication)"""
+    
+    # Check if product exists
     product = db.query(Product).filter(Product.ProductId == item.product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    cart_item = db.query(CartItem).filter(CartItem.product_id == item.product_id).first()
+    # Check if item already exists in user's cart
+    cart_item = db.query(CartItem).filter(
+        CartItem.product_id == item.product_id,
+        CartItem.user_id == current_user.id
+    ).first()
+    
+    ip, user_agent = get_client_info(request)
+    
     if cart_item:
+        # Update existing cart item
+        old_quantity = cart_item.quantity
         cart_item.quantity += item.quantity
+        db.commit()
+        db.refresh(cart_item)
+        
+        # Audit log
+        create_audit_log(
+            db=db,
+            user_id=current_user.id,
+            action="UPDATE",
+            entity_type="CART_ITEM",
+            entity_id=cart_item.id,
+            cart_id=cart_item.id,
+            details={
+                "product_id": product.ProductId,
+                "old_quantity": old_quantity,
+                "new_quantity": cart_item.quantity,
+                "quantity_added": item.quantity
+            },
+            ip_address=ip,
+            user_agent=user_agent
+        )
     else:
-        cart_item = CartItem(product_id=item.product_id, quantity=item.quantity)
+        # Create new cart item
+        cart_item = CartItem(
+            user_id=current_user.id,
+            product_id=item.product_id,
+            quantity=item.quantity
+        )
         db.add(cart_item)
-
-    db.commit()
-    db.refresh(cart_item)
+        db.commit()
+        db.refresh(cart_item)
+        
+        # Audit log
+        create_audit_log(
+            db=db,
+            user_id=current_user.id,
+            action="ADD",
+            entity_type="CART_ITEM",
+            entity_id=cart_item.id,
+            cart_id=cart_item.id,
+            details={
+                "product_id": product.ProductId,
+                "quantity": cart_item.quantity
+            },
+            ip_address=ip,
+            user_agent=user_agent
+        )
 
     return {
         "status": "success",
         "message": "Product added to cart successfully.",
         "data": {
+            "cart_item_id": cart_item.id,
             "product_id": product.ProductId,
             "quantity": cart_item.quantity,
             "price": product.Price,
@@ -37,20 +109,53 @@ def add_to_cart(item: CartAdd, db: Session = Depends(get_db)):
 
 
 @router.put("/update/{cart_item_id}")
-def update_cart_item(cart_item_id: int, update: CartUpdate, db: Session = Depends(get_db)):
-    cart_item = db.query(CartItem).filter(CartItem.id == cart_item_id).first()
+def update_cart_item(
+    cart_item_id: int,
+    update: CartUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update cart item quantity (requires authentication)"""
+    
+    cart_item = db.query(CartItem).filter(
+        CartItem.id == cart_item_id,
+        CartItem.user_id == current_user.id
+    ).first()
+    
     if not cart_item:
         raise HTTPException(status_code=404, detail="Cart item not found")
 
+    old_quantity = cart_item.quantity
     cart_item.quantity = update.quantity
     db.commit()
     db.refresh(cart_item)
 
     product = cart_item.product
+    
+    # Audit log
+    ip, user_agent = get_client_info(request)
+    create_audit_log(
+        db=db,
+        user_id=current_user.id,
+        action="UPDATE",
+        entity_type="CART_ITEM",
+        entity_id=cart_item.id,
+        cart_id=cart_item.id,
+        details={
+            "product_id": product.ProductId,
+            "old_quantity": old_quantity,
+            "new_quantity": cart_item.quantity
+        },
+        ip_address=ip,
+        user_agent=user_agent
+    )
+    
     return {
         "status": "success",
         "message": "Cart item updated successfully.",
         "data": {
+            "cart_item_id": cart_item.id,
             "product_id": product.ProductId,
             "quantity": cart_item.quantity,
             "price": product.Price,
@@ -61,13 +166,43 @@ def update_cart_item(cart_item_id: int, update: CartUpdate, db: Session = Depend
 
 
 @router.delete("/delete/{cart_item_id}")
-def delete_cart_item(cart_item_id: int, db: Session = Depends(get_db)):
-    cart_item = db.query(CartItem).filter(CartItem.id == cart_item_id).first()
+def delete_cart_item(
+    cart_item_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete cart item (requires authentication)"""
+    
+    cart_item = db.query(CartItem).filter(
+        CartItem.id == cart_item_id,
+        CartItem.user_id == current_user.id
+    ).first()
+    
     if not cart_item:
         raise HTTPException(status_code=404, detail="Cart item not found")
 
+    product_id = cart_item.product_id
+    quantity = cart_item.quantity
+    
     db.delete(cart_item)
     db.commit()
+
+    # Audit log
+    ip, user_agent = get_client_info(request)
+    create_audit_log(
+        db=db,
+        user_id=current_user.id,
+        action="DELETE",
+        entity_type="CART_ITEM",
+        entity_id=cart_item_id,
+        details={
+            "product_id": product_id,
+            "quantity": quantity
+        },
+        ip_address=ip,
+        user_agent=user_agent
+    )
 
     return {
         "status": "success",
@@ -76,9 +211,32 @@ def delete_cart_item(cart_item_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/clear")
-def clear_cart(db: Session = Depends(get_db)):
-    deleted_count = db.query(CartItem).delete()
+def clear_cart(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Clear all cart items for current user (requires authentication)"""
+    
+    deleted_count = db.query(CartItem).filter(
+        CartItem.user_id == current_user.id
+    ).delete()
     db.commit()
+    
+    # Audit log
+    ip, user_agent = get_client_info(request)
+    create_audit_log(
+        db=db,
+        user_id=current_user.id,
+        action="CLEAR",
+        entity_type="CART",
+        details={
+            "items_deleted": deleted_count
+        },
+        ip_address=ip,
+        user_agent=user_agent
+    )
+    
     return {
         "status": "success",
         "message": f"Cleared {deleted_count} item(s) from the cart."
@@ -86,9 +244,30 @@ def clear_cart(db: Session = Depends(get_db)):
 
 
 @router.get("/view")
-def view_cart(db: Session = Depends(get_db)):
-    cart_items = db.query(CartItem).all()
+def view_cart(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """View cart items for current user (requires authentication)"""
+    
+    cart_items = db.query(CartItem).filter(
+        CartItem.user_id == current_user.id
+    ).all()
+    
     if not cart_items:
+        # Audit log
+        ip, user_agent = get_client_info(request)
+        create_audit_log(
+            db=db,
+            user_id=current_user.id,
+            action="VIEW",
+            entity_type="CART",
+            details={"items_count": 0},
+            ip_address=ip,
+            user_agent=user_agent
+        )
+        
         return {
             "status": "success",
             "message": "Cart is empty.",
@@ -127,10 +306,27 @@ def view_cart(db: Session = Depends(get_db)):
         "grand_total": grand_total
     }
 
+    # Audit log
+    ip, user_agent = get_client_info(request)
+    create_audit_log(
+        db=db,
+        user_id=current_user.id,
+        action="VIEW",
+        entity_type="CART",
+        details={
+            "items_count": len(cart_items),
+            "grand_total": grand_total
+        },
+        ip_address=ip,
+        user_agent=user_agent
+    )
+
     return {
         "status": "success",
         "message": "Cart data fetched successfully.",
         "data": {
+            "user_id": current_user.id,
+            "username": current_user.name or current_user.mobile,
             "cart_summary": summary,
             "cart_items": cart_item_details
         }

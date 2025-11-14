@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, Any
 import jwt
+from fastapi import HTTPException
 from dotenv import load_dotenv
 import os
 import hashlib
@@ -36,3 +37,17 @@ def hash_value(value: str) -> str:
     Used for hashing OTP and user-entered OTP during verification.
     """
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def decode_access_token(token: str):
+    """
+    Decodes and validates JWT access token.
+    Raises HTTPException for invalid or expired tokens.
+    """
+    try:
+        decoded = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return decoded
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")

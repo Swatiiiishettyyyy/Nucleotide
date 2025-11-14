@@ -26,7 +26,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/send-otp", response_model=SendOTPResponse)
 def send_otp(request: SendOTPRequest, db: Session = Depends(get_db)):
-
+    """
+    Send OTP to the provided mobile number.
+    Rate limited to prevent abuse.
+    """
     if not otp_manager.can_request_otp(request.country_code, request.mobile):
         remaining = otp_manager.get_remaining_requests(request.country_code, request.mobile)
         raise HTTPException(
@@ -58,13 +61,19 @@ def send_otp(request: SendOTPRequest, db: Session = Depends(get_db)):
 
 @router.post("/verify-otp", response_model=VerifyOTPResponse)
 def verify_otp(req: VerifyOTPRequest, request: Request, db: Session = Depends(get_db)):
-
+    """
+    Verify OTP and create user session.
+    Returns access token on successful verification.
+    """
     phone_number = f"{req.country_code}{req.mobile}"
 
     # Fetch OTP from Redis (plaintext)
     stored = otp_manager.get_otp(req.country_code, req.mobile)
     if not stored:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP expired or not found")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP expired or not found"
+        )
 
     # Compare plaintext (fast check)
     if stored != req.otp:
@@ -73,7 +82,10 @@ def verify_otp(req: VerifyOTPRequest, request: Request, db: Session = Depends(ge
             phone_number=phone_number,
             user_entered_otp_hash=security.hash_value(req.otp)
         )
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OTP")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP"
+        )
 
     # Retrieve last sent OTP log and mark as verified
     last_sent = (
